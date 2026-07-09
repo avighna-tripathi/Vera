@@ -1,0 +1,2 @@
+"""magicpin challenge bot package."""
+

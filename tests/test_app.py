@@ -172,6 +172,85 @@ class AppTests(unittest.TestCase):
         self.assertIn("Patient WhatsApp draft", data["body"])
         self.assertIn("Dental Cleaning @ Rs299", data["body"])
 
+    def test_reply_can_revise_existing_draft_with_stronger_cta(self) -> None:
+        category = {
+            "slug": "dentists",
+            "display_name": "Dentists",
+            "voice": {"tone": "peer_clinical"},
+            "digest": [
+                {
+                    "id": "d1",
+                    "title": "3-month recall improves outcomes",
+                    "source": "JIDA Oct 2026",
+                    "trial_n": 2100,
+                    "patient_segment": "high_risk_adults",
+                    "summary": "38% lower recurrence in high-risk adults.",
+                }
+            ],
+        }
+        merchant = {
+            "merchant_id": "m_001_drmeera_dentist_delhi",
+            "category_slug": "dentists",
+            "identity": {"name": "Dr. Meera's Dental Clinic", "owner_first_name": "Meera"},
+            "offers": [{"title": "Dental Cleaning @ Rs299", "status": "active"}],
+            "signals": ["engaged_in_last_48h"],
+            "conversation_history": [],
+        }
+        trigger = {
+            "id": "trg_001_research_digest_dentists",
+            "scope": "merchant",
+            "kind": "research_digest",
+            "merchant_id": merchant["merchant_id"],
+            "payload": {"top_item_id": "d1"},
+            "urgency": 2,
+            "suppression_key": "research:dentists:2026-W17",
+            "expires_at": "2099-01-01T00:00:00Z",
+        }
+        for scope, context_id, payload in [
+            ("category", "dentists", category),
+            ("merchant", merchant["merchant_id"], merchant),
+            ("trigger", trigger["id"], trigger),
+        ]:
+            self.client.post(
+                "/v1/context",
+                json={"scope": scope, "context_id": context_id, "version": 1, "payload": payload, "delivered_at": "2026-01-01T00:00:00Z"},
+            )
+
+        tick_response = self.client.post("/v1/tick", json={"now": "2026-04-26T10:35:00Z", "available_triggers": [trigger["id"]]})
+        conversation_id = tick_response.json()["actions"][0]["conversation_id"]
+
+        first_reply = self.client.post(
+            "/v1/reply",
+            json={
+                "conversation_id": conversation_id,
+                "merchant_id": merchant["merchant_id"],
+                "customer_id": None,
+                "from_role": "merchant",
+                "message": "Give me the final patient WhatsApp text only.",
+                "received_at": "2026-04-26T10:42:00Z",
+                "turn_number": 2,
+            },
+        )
+        self.assertEqual(first_reply.status_code, 200)
+
+        revised_reply = self.client.post(
+            "/v1/reply",
+            json={
+                "conversation_id": conversation_id,
+                "merchant_id": merchant["merchant_id"],
+                "customer_id": None,
+                "from_role": "merchant",
+                "message": "Add a stronger booking CTA",
+                "received_at": "2026-04-26T10:44:00Z",
+                "turn_number": 3,
+            },
+        )
+        self.assertEqual(revised_reply.status_code, 200)
+        data = revised_reply.json()
+        self.assertEqual(data["action"], "send")
+        self.assertIn("Patient WhatsApp draft", data["body"])
+        self.assertIn("Reply BOOK today", data["body"])
+
     def test_composer_can_use_refiner(self) -> None:
         resolved = ResolvedContexts(
             category={"slug": "dentists", "voice": {}},

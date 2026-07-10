@@ -21,7 +21,7 @@ from vera_bot.models import (
 from vera_bot.services.composer import Composer
 from vera_bot.services.context_resolver import ContextResolver
 from vera_bot.services.llm import OpenRouterRefiner
-from vera_bot.services.reply_policy import ReplyPolicy
+from vera_bot.services.reply_policy_v2 import ReplyPolicy
 from vera_bot.services.trigger_selector import TriggerSelector, score_trigger
 from vera_bot.services.validators import avoid_repetition, validate_action_shape
 from vera_bot.store import ContextStore, ConversationStore, SuppressionStore, parse_dt, utc_now, utc_now_iso

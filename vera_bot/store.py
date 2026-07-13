@@ -129,8 +129,9 @@ class SuppressionStore:
         expires_at = self._suppressed.get(key)
         return bool(expires_at and expires_at > now)
 
-    def set_merchant_cooldown(self, merchant_id: str, seconds: int) -> None:
-        self._merchant_cooldowns[merchant_id] = utc_now() + timedelta(seconds=seconds)
+    def set_merchant_cooldown(self, merchant_id: str, seconds: int, now: datetime | None = None) -> None:
+        """Anchor cooldowns to the event time when a caller provides one."""
+        self._merchant_cooldowns[merchant_id] = (now or utc_now()) + timedelta(seconds=seconds)
 
     def merchant_on_cooldown(self, merchant_id: str, now: datetime | None = None) -> bool:
         now = now or utc_now()
@@ -144,4 +145,3 @@ class SuppressionStore:
         now = now or utc_now()
         expires_at = self._opted_out_merchants.get(merchant_id)
         return bool(expires_at and expires_at > now)
-

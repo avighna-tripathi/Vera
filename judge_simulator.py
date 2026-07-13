@@ -38,6 +38,12 @@ OLLAMA_URL = "http://localhost:11434"
 # Which test to run by default
 TEST_SCENARIO = "all"
 
+# Simulated test-window time used for /v1/tick and /v1/reply in local judging
+SIMULATED_NOW = "2026-04-26T10:35:00Z"
+
+# Keep Gemini free-tier judging below the per-minute request limit.
+JUDGE_SCORE_DELAY_SECONDS = 4.2
+
 # =============================================================================
 # ██████  END OF CONFIGURATION - DON'T EDIT BELOW THIS LINE ██████
 # =============================================================================
@@ -65,6 +71,8 @@ load_dotenv(Path(__file__).parent / ".env")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", LLM_PROVIDER)
 BOT_URL = os.getenv("BOT_URL", BOT_URL)
 TEST_SCENARIO = os.getenv("TEST_SCENARIO", TEST_SCENARIO)
+JUDGE_SCORE_DELAY_SECONDS = float(os.getenv("JUDGE_SCORE_DELAY_SECONDS", JUDGE_SCORE_DELAY_SECONDS))
+SIMULATED_NOW = os.getenv("SIMULATED_NOW", SIMULATED_NOW)
 if not LLM_API_KEY:
     if LLM_PROVIDER == "gemini":
         LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -384,25 +392,42 @@ class DatasetLoader:
 
     def load(self) -> bool:
         try:
-            cat_dir = self.dataset_dir / "categories"
+            expanded_dir = self.dataset_dir / "expanded"
+            use_expanded = expanded_dir.exists()
+            base_dir = expanded_dir if use_expanded else self.dataset_dir
+
+            cat_dir = base_dir / "categories"
             if cat_dir.exists():
                 for f in cat_dir.glob("*.json"):
-                    data = json.load(open(f))
+                    data = json.load(open(f, encoding="utf-8"))
                     self.categories[data.get("slug", f.stem)] = data
 
-            for name, container, key in [
-                ("merchants_seed.json", "merchants", "merchant_id"),
-                ("customers_seed.json", "customers", "customer_id"),
-                ("triggers_seed.json", "triggers", "id")
-            ]:
-                path = self.dataset_dir / name
-                if path.exists():
-                    data = json.load(open(path))
-                    items = data.get(container, data.get(container.rstrip("s"), []))
+            if use_expanded:
+                for folder_name, container, key in [
+                    ("merchants", "merchants", "merchant_id"),
+                    ("customers", "customers", "customer_id"),
+                    ("triggers", "triggers", "id"),
+                ]:
+                    folder = base_dir / folder_name
                     storage = getattr(self, container)
-                    for item in items:
+                    for f in folder.glob("*.json"):
+                        item = json.load(open(f, encoding="utf-8"))
                         if key in item:
                             storage[item[key]] = item
+            else:
+                for name, container, key in [
+                    ("merchants_seed.json", "merchants", "merchant_id"),
+                    ("customers_seed.json", "customers", "customer_id"),
+                    ("triggers_seed.json", "triggers", "id")
+                ]:
+                    path = self.dataset_dir / name
+                    if path.exists():
+                        data = json.load(open(path, encoding="utf-8"))
+                        items = data.get(container, data.get(container.rstrip("s"), []))
+                        storage = getattr(self, container)
+                        for item in items:
+                            if key in item:
+                                storage[item[key]] = item
             return True
         except Exception as e:
             print_fail(f"Dataset load error: {e}")
@@ -449,14 +474,14 @@ class BotClient:
 
     def tick(self, triggers):
         return self._request("POST", "/v1/tick", 15, {
-            "now": datetime.utcnow().isoformat() + "Z", "available_triggers": triggers
+            "now": SIMULATED_NOW, "available_triggers": triggers
         })
 
     def reply(self, conv_id, merchant_id, message, turn):
         return self._request("POST", "/v1/reply", 15, {
             "conversation_id": conv_id, "merchant_id": merchant_id, "customer_id": None,
             "from_role": "merchant", "message": message,
-            "received_at": datetime.utcnow().isoformat() + "Z", "turn_number": turn
+            "received_at": SIMULATED_NOW, "turn_number": turn
         })
 
 # =============================================================================
@@ -867,6 +892,8 @@ class JudgeSimulator:
         customer = self.dataset.customers.get(cid) if cid else None
         category = self.dataset.categories.get(merchant.get("category_slug", ""), {})
 
+        if self.all_scores and JUDGE_SCORE_DELAY_SECONDS > 0:
+            time.sleep(JUDGE_SCORE_DELAY_SECONDS)
         score = self.scorer.score(action, category, merchant, trigger, customer)
         self.all_scores.append(score)
 

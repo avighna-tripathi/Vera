@@ -44,7 +44,8 @@ composer = Composer(
         openrouter_model=SETTINGS.openrouter_model,
         openrouter_referer=SETTINGS.openrouter_referer,
         openrouter_title=SETTINGS.openrouter_title,
-    )
+    ),
+    refine_known_triggers=SETTINGS.llm_refine_known_triggers,
 )
 reply_policy = ReplyPolicy(suppression_store)
 
@@ -90,6 +91,7 @@ async def push_context(body: ContextPushRequest, response: Response) -> ContextP
 
 @app.post("/v1/tick", response_model=TickResponse)
 async def tick(body: TickRequest) -> TickResponse:
+    request_now = parse_dt(body.now) or utc_now()
     resolved_batch = []
     for trigger_id in body.available_triggers:
         resolved = resolver.resolve_for_trigger(trigger_id)
@@ -140,7 +142,7 @@ async def tick(body: TickRequest) -> TickResponse:
         record.turns.append({"from": "bot", "body": final_body, "at": utc_now_iso()})
         conversation_store.remember_sent_body(conversation_id, final_body)
         suppression_store.suppress(composed.suppression_key, _suppression_expiry(resolved.trigger))
-        suppression_store.set_merchant_cooldown(merchant_id, seconds=4 * 3600)
+        suppression_store.set_merchant_cooldown(merchant_id, seconds=4 * 3600, now=request_now)
         touched_merchants.add(merchant_id)
         actions.append(action)
         if len(actions) >= 20:

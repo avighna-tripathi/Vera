@@ -45,6 +45,71 @@ def _humanize_token(text: str) -> str:
     return str(text).replace("_", " ")
 
 
+def _category_label(merchant: dict[str, Any]) -> str:
+    labels = {
+        "dentists": "dental clinic",
+        "gyms": "fitness studio",
+        "pharmacies": "pharmacy",
+        "restaurants": "restaurant",
+        "salons": "salon",
+    }
+    return labels.get(merchant.get("category_slug", ""), _humanize_token(merchant.get("category_slug", "business")).rstrip("s"))
+
+
+def _fmt_number(value: Any) -> str:
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _fmt_pct(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _place_text(merchant: dict[str, Any]) -> str:
+    identity = merchant.get("identity", {})
+    locality = identity.get("locality")
+    city = identity.get("city")
+    if locality and city:
+        return f"{locality}, {city}"
+    return locality or city or "your area"
+
+
+def _performance_snapshot(merchant: dict[str, Any]) -> str:
+    performance = merchant.get("performance", {})
+    window = performance.get("window_days", 30)
+    views = _fmt_number(performance.get("views", 0))
+    calls = _fmt_number(performance.get("calls", 0))
+    ctr = _fmt_pct(performance.get("ctr", 0))
+    return f"Last {window} days: {views} views, {calls} calls, {ctr} CTR"
+
+
+def _category_action(merchant: dict[str, Any]) -> str:
+    actions = {
+        "dentists": "push one recall or treatment booking message to patients who already showed intent",
+        "gyms": "convert warm trial interest into a fixed 7-day class or PT follow-up",
+        "pharmacies": "move repeat buyers into refill reminders with pickup or delivery confirmation",
+        "restaurants": "promote one high-margin order window instead of a broad all-day discount",
+        "salons": "fill the next weak slots with one rebooking message for a specific service",
+    }
+    return actions.get(merchant.get("category_slug", ""), "turn this into one clear customer-facing next step")
+
+
+def _category_review_fix(merchant: dict[str, Any]) -> str:
+    fixes = {
+        "dentists": "separate clinical concern from waiting-time feedback before replying publicly",
+        "gyms": "separate trainer availability, crowding, and trial follow-up before asking for new reviews",
+        "pharmacies": "separate stock availability, delivery delay, and pharmacist counsel before replying",
+        "restaurants": "separate food quality, late delivery, and weekend rush comments before replying",
+        "salons": "separate wait time, finishing quality, and staff mention before replying",
+    }
+    return fixes.get(merchant.get("category_slug", ""), "group the comments into one fixable theme before replying")
+
+
 @dataclass(slots=True)
 class Composed:
     body: str
@@ -57,15 +122,20 @@ class Composed:
 
 
 class Composer:
-    def __init__(self, refiner: OpenRouterRefiner | None = None) -> None:
+    def __init__(self, refiner: OpenRouterRefiner | None = None, refine_known_triggers: bool = True) -> None:
         self.refiner = refiner
+        self.refine_known_triggers = refine_known_triggers
 
     def compose(self, resolved: ResolvedContexts) -> Composed:
         trigger = resolved.trigger
         send_as = "merchant_on_behalf" if trigger.get("scope") == "customer" else "vera"
-        method = getattr(self, f"_compose_{trigger.get('kind')}", self._compose_generic)
-        body, cta, rationale = method(resolved)
-        if self.refiner and self.refiner.enabled:
+        method_name = f"_compose_{trigger.get('kind')}"
+        method = getattr(self, method_name, self._compose_generic)
+        if trigger.get("payload", {}).get("placeholder"):
+            body, cta, rationale = self._compose_placeholder(resolved)
+        else:
+            body, cta, rationale = method(resolved)
+        if self.refiner and self.refiner.enabled and (self.refine_known_triggers or method_name == "_compose_generic"):
             try:
                 refined = self.refiner.refine(resolved, body, cta, rationale)
                 body = refined.body or body
@@ -87,6 +157,127 @@ class Composer:
             template_name=template_name,
             template_params=template_params,
         )
+
+    def _compose_placeholder(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
+        """Use profile facts when a generated trigger deliberately has no detail payload."""
+        merchant = resolved.merchant
+        customer = resolved.customer or {}
+        trigger = resolved.trigger
+        payload = trigger.get("payload", {})
+        kind = trigger.get("kind", "update")
+        topic = _humanize_token(payload.get("metric_or_topic", kind))
+        business = _business_name(merchant)
+
+        if trigger.get("scope") == "customer":
+            customer_name = customer.get("identity", {}).get("name", "there")
+            if kind == "appointment_tomorrow":
+                body = f"Hi {customer_name}, {business} here. Reminder for your appointment tomorrow: reply CONFIRM if you are set, or RESCHEDULE and we will help with another time."
+                return body, "binary_confirm_cancel", "Appointment reminder stays useful without inventing service or time details."
+            if kind == "recall_due":
+                body = f"Hi {customer_name}, {business} here. You are due for a follow-up. Reply 1 for a slot this week, 2 for next week, or NO if you want us to pause reminders."
+                return body, "multi_choice_slot", "Recall reminder gives a clear booking choice without inventing a service."
+            if kind == "customer_lapsed_soft":
+                body = f"Hi {customer_name}, {business} here. It has been a while since your last visit. Want us to hold an easy comeback slot this week? Reply YES and we will suggest two options."
+                return body, "binary_yes_no", "Gentle lapsed-customer nudge keeps the ask low pressure and replyable."
+            if kind == "chronic_refill_due":
+                body = f"Hi {customer_name}, {business} here. Quick refill reminder: reply CONFIRM if you want us to check availability and pickup or delivery, or SKIP if you are stocked for now."
+                return body, "binary_confirm_cancel", "Refill reminder is operational and consent-led even when the exact molecule is absent."
+            if kind == "trial_followup":
+                body = f"Hi {customer_name}, {business} here. If the trial felt useful, reply YES and we will hold the next beginner-friendly slot; reply LATER if this week is packed."
+                return body, "binary_yes_no", "Trial follow-up asks for one simple commitment without inventing attendance details."
+            body = f"Hi {customer_name}, {business} here. Quick check-in: reply YES if you want the simplest next step from us, or NO and we will leave it here."
+            return body, "binary_yes_no", "Customer follow-up uses a low-friction opt-in without inventing history."
+
+        owner = _merchant_name(merchant)
+        label = _category_label(merchant)
+        place = _place_text(merchant)
+        snapshot = _performance_snapshot(merchant)
+        action = _category_action(merchant)
+        active_offer = _active_offers(merchant)
+        offer_text = active_offer[0]["title"] if active_offer else None
+
+        if kind == "research_digest":
+            body = f"{owner}, one useful {label} update is worth turning into customer content, not just reading. {snapshot} in {place}. Want a WhatsApp plus Google post that connects it to one bookable next step?"
+            return body, "binary_yes_no", "Placeholder research digest becomes a concrete content asset using profile performance."
+        if kind == "perf_dip":
+            body = f"{owner}, {snapshot} in {place}. If this is the dip alert, I would avoid a blanket discount; for your {label}, {action}. Want the exact 3-line recovery message?"
+            return body, "binary_yes_no", "Performance dip message makes a conservative recovery decision anchored to current profile metrics."
+        if kind == "perf_spike":
+            body = f"{owner}, {snapshot} in {place}. If this spike is fresh, capture demand now: for your {label}, {action}. Want a same-day post and reply script?"
+            return body, "binary_yes_no", "Performance spike message pushes immediate follow-through while momentum is active."
+        if kind == "milestone_reached":
+            body = f"{owner}, {snapshot} in {place}. Since a milestone was just hit, the next move is proof, not another offer: turn the win into one short post and one customer reply script for your {label}. Want both drafts?"
+            return body, "binary_yes_no", "Milestone message converts the achievement into proof and a concrete reusable asset."
+        if kind == "dormant_with_vera":
+            body = f"{owner}, restarting with a generic idea would waste the moment. {snapshot} in {place}; for your {label}, the clean restart is to {action}. Want the ready-to-use draft?"
+            return body, "binary_yes_no", "Dormant re-entry avoids stale follow-up and uses current profile numbers to pick one restart action."
+        if kind == "review_theme_emerged":
+            body = f"{owner}, a review theme is emerging and {snapshot} in {place} means public replies can affect conversion. For your {label}, first {_category_review_fix(merchant)}; then answer with one calm template. Want that template?"
+            return body, "binary_yes_no", "Review-theme placeholder gives a category-specific triage decision before drafting a public response."
+        if kind == "competitor_opened":
+            offer_line = f" Keep {offer_text} as the hook." if offer_text else ""
+            body = f"{owner}, if a competitor has opened near {place}, do not race them on price first. {snapshot}; for your {label}, lead with a sharper positioning line and one reply CTA.{offer_line} Want the counter-positioning draft?"
+            return body, "binary_yes_no", "Competitor message chooses positioning over price matching and ties it to the merchant profile."
+        if kind == "festival_upcoming":
+            offer_line = offer_text or f"one {label}-specific offer"
+            body = f"{owner}, for the upcoming festival, prepare now but hold the blast until the buying window. {snapshot} in {place}; pick {offer_line}, define the booking/use window, and save the launch draft. Want me to write it?"
+            return body, "binary_yes_no", "Festival placeholder makes a timing-aware campaign decision without inventing the festival name."
+        if kind == "renewal_due":
+            body = f"{owner}, before you decide on renewal, check whether the profile is earning enough action. {snapshot} in {place}; I would fix the call/reply path for your {label} before adding spend. Want the 3-point renewal snapshot?"
+            return body, "binary_yes_no", "Renewal nudge offers decision support tied to visible profile performance."
+        if kind == "curious_ask_due":
+            body = f"{owner}, quick operator question for {business} in {place}: which service or item do customers ask for most this week? With {snapshot}, I can turn your answer into one Google post and one WhatsApp reply. Send me the item name?"
+            return body, "open_ended", "Curiosity-led placeholder asks for one merchant input and promises an immediate reusable asset."
+
+        body = f"{owner}, {snapshot} in {place}. For your {label}, my recommendation is to {action}. Want the ready-to-use draft?"
+        return body, "binary_yes_no", "Generated trigger has no event facts, so the message uses verified profile performance plus a category-specific decision."
+
+        if trigger.get("scope") == "customer":
+            customer_name = customer.get("identity", {}).get("name", "there")
+            if kind == "appointment_tomorrow":
+                body = f"Hi {customer_name}, {business} here. A quick reminder about your appointment tomorrow: reply CONFIRM if you are all set, or RESCHEDULE and we will help with another time."
+                return body, "binary_confirm_cancel", "Appointment reminder stays useful without inventing a service or time that was not provided."
+            body = f"Hi {customer_name}, {business} here. We would love to help with your {topic.replace('customer ', '')} plan. Reply YES and we will suggest the simplest next step."
+            return body, "binary_yes_no", "Customer follow-up uses the known trigger purpose and a low-friction opt-in without inventing history."
+
+        owner = _merchant_name(merchant)
+        identity = merchant.get("identity", {})
+        city = identity.get("city")
+        category_slug = merchant.get("category_slug", "")
+        performance = merchant.get("performance", {})
+        window = performance.get("window_days")
+        views = performance.get("views")
+        calls = performance.get("calls")
+        profile_fact = ""
+        if window and views is not None and calls is not None:
+            profile_fact = f" In the last {window} days, your profile generated {views} views and {calls} calls."
+        city_fact = f" for {business} in {city}" if city else f" for {business}"
+        category_actions = {
+            "dentists": "ask recent patients to book their next recall or treatment visit",
+            "gyms": "send recent trial members a direct membership follow-up",
+            "pharmacies": "prompt repeat customers about their next refill or availability check",
+            "restaurants": "promote one menu or delivery choice for the next demand window",
+            "salons": "ask recent clients to rebook a specific service into the next available slot",
+        }
+        action = category_actions.get(category_slug, "turn the signal into one clear customer-facing next step")
+        if kind == "review_theme_emerged":
+            action = "respond to the next review calmly, then fix the recurring issue before it costs another repeat customer"
+        elif kind == "milestone_reached":
+            action = f"use the next { _category_label(merchant) } customer interaction to cross the milestone, then share the proof in a short local post"
+        elif kind == "dormant_with_vera":
+            action = f"restart with one fresh { _category_label(merchant) } growth idea instead of reopening the old conversation"
+        elif kind == "competitor_opened":
+            action = "lead with your strongest differentiator instead of matching a competitor's discount"
+        elif kind == "festival_upcoming":
+            action = "prepare one category-relevant offer now, then schedule the actual push closer to the festival"
+        elif kind == "renewal_due":
+            action = "review the profile actions that create calls before making the next plan decision"
+        elif kind == "perf_dip":
+            action = f"{action} rather than adding a blanket discount"
+        elif kind == "perf_spike":
+            action = f"{action} while the current momentum is still fresh"
+        body = f"{owner}, I’m preparing a short {topic} check-in{city_fact}.{profile_fact} For your {_category_label(merchant)} business, my recommendation is to {action}. Want the ready-to-use draft?"
+        return body, "binary_yes_no", "Generated trigger has no event facts, so the message uses verified profile performance plus a category-specific decision."
 
     def _compose_research_digest(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
         merchant = resolved.merchant
@@ -188,8 +379,8 @@ class Composer:
         payload = resolved.trigger.get("payload", {})
         owner = _merchant_name(merchant)
         topic = str(payload.get("intent_topic", "this plan")).replace("_", " ")
-        body = f"{owner}, here’s a starter structure for {topic}: clear offer, who it’s for, price/entry point, and one CTA. I can draft the full merchant-ready version next. Want the first draft now?"
-        rationale = "Merchant has shown explicit planning intent, so the message moves straight into execution."
+        body = f"{owner}, since you asked about {topic}, for your {_category_label(merchant)} business I’d start with one clear offer, the exact audience, and a single reply CTA rather than a broad announcement. I can turn that into a ready-to-send 3-line draft now. Want it?"
+        rationale = "Merchant showed active planning intent, so the message gives a concrete campaign decision and moves directly to execution."
         return body, "binary_yes_no", rationale
 
     def _compose_seasonal_perf_dip(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
@@ -235,8 +426,8 @@ class Composer:
         days = payload.get("days_until")
         active_offer = _active_offers(merchant)
         offer_text = active_offer[0]["title"] if active_offer else "one specific festive offer"
-        body = f"{owner}, {festival} is {days} days away. Better than a vague discount: lead with {offer_text} and a clear booking/use window. Want me to draft the festive message?"
-        rationale = "Festival message turns timing into a specific, category-correct offer prompt."
+        body = f"{owner}, {festival} is {days} days away. It is too early to launch a discount, but this is the right time to choose {offer_text} for your {_category_label(merchant)} business and set a clear booking/use window. Want the campaign draft to save for the launch week?"
+        rationale = "Festival message makes a timing-aware decision: prepare the specific offer now, but avoid spending the promotion too early."
         return body, "binary_yes_no", rationale
 
     def _compose_ipl_match_today(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
@@ -320,6 +511,41 @@ class Composer:
         body = f"Hi {customer_name}, {_merchant_name(merchant)} from {_business_name(merchant)} here. It’s been about {payload.get('days_since_last_visit')} days. No pressure, but we’ve got something that fits your earlier {focus} goal. Want me to hold a trial slot for you this week?"
         rationale = "Winback message uses warm, low-shame framing and refers back to the customer’s prior goal."
         return body, "binary_yes_no", rationale
+
+    def _compose_customer_lapsed_soft(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
+        merchant = resolved.merchant
+        customer = resolved.customer or {}
+        payload = resolved.trigger.get("payload", {})
+        customer_name = customer.get("identity", {}).get("name", "there")
+        days = payload.get("days_since_last_visit", "a while")
+        focus = _humanize_token(payload.get("previous_focus", "routine"))
+        active_offer = _active_offers(merchant)
+        offer_text = active_offer[0].get("title") if active_offer else None
+        offer_line = f" {offer_text} is available this week." if offer_text else ""
+        body = (
+            f"Hi {customer_name}, {_merchant_name(merchant)} from {_business_name(merchant)} here. "
+            f"It has been {days} days since your last visit for {focus}."
+            f"{offer_line} Want me to hold a convenient slot for you this week?"
+        )
+        rationale = "Gentle winback names the prior visit timing and focus, then asks for one low-pressure next step."
+        return body, "binary_yes_no", rationale
+
+    def _compose_appointment_tomorrow(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
+        merchant = resolved.merchant
+        customer = resolved.customer or {}
+        payload = resolved.trigger.get("payload", {})
+        customer_name = customer.get("identity", {}).get("name", "there")
+        appointment = payload.get("appointment", {})
+        service = appointment.get("service") or payload.get("service") or "appointment"
+        time_label = appointment.get("time_label") or appointment.get("time") or payload.get("time_label") or "your scheduled time"
+        location = appointment.get("location") or payload.get("location")
+        location_line = f" at {location}" if location else ""
+        body = (
+            f"Hi {customer_name}, reminder from {_business_name(merchant)}: your {service} is tomorrow "
+            f"at {time_label}{location_line}. Reply CONFIRM to keep it, or RESCHEDULE if you need another time."
+        )
+        rationale = "Appointment reminder uses the scheduled service and time with an explicit confirm-or-reschedule choice."
+        return body, "binary_confirm_cancel", rationale
 
     def _compose_trial_followup(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
         merchant = resolved.merchant

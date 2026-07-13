@@ -27,6 +27,10 @@ def default_model_name() -> str:
     return "deterministic-rule-engine-v1"
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(slots=True)
 class Settings:
     team_name: str = field(default_factory=lambda: os.getenv("TEAM_NAME", "magicpin-challenge"))
@@ -50,6 +54,7 @@ class Settings:
     openrouter_model: str = field(default_factory=lambda: os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"))
     openrouter_referer: str = field(default_factory=lambda: os.getenv("OPENROUTER_REFERER", "https://magicpin.local"))
     openrouter_title: str = field(default_factory=lambda: os.getenv("OPENROUTER_TITLE", "magicpin-ai-challenge"))
+    llm_refine_known_triggers: bool = field(default_factory=lambda: env_flag("LLM_REFINE_KNOWN_TRIGGERS"))
 
 
 SETTINGS = Settings()

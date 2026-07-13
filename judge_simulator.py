@@ -66,12 +66,20 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", LLM_PROVIDER)
 BOT_URL = os.getenv("BOT_URL", BOT_URL)
 TEST_SCENARIO = os.getenv("TEST_SCENARIO", TEST_SCENARIO)
 if not LLM_API_KEY:
-    if LLM_PROVIDER == "openrouter":
+    if LLM_PROVIDER == "gemini":
+        LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    elif LLM_PROVIDER == "openrouter":
         LLM_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
     else:
         LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+if not LLM_MODEL and LLM_PROVIDER == "gemini":
+    LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 if not LLM_MODEL and LLM_PROVIDER == "openrouter":
     LLM_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+if LLM_PROVIDER == "openai" and not LLM_API_KEY and os.getenv("GEMINI_API_KEY"):
+    LLM_PROVIDER = "gemini"
+    LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 if LLM_PROVIDER == "openai" and not LLM_API_KEY and os.getenv("OPENROUTER_API_KEY"):
     LLM_PROVIDER = "openrouter"
     LLM_API_KEY = os.getenv("OPENROUTER_API_KEY", "")

@@ -20,6 +20,8 @@ def default_model_name() -> str:
     explicit = os.getenv("MODEL_NAME")
     if explicit:
         return explicit
+    if os.getenv("GEMINI_API_KEY"):
+        return f"gemini:{os.getenv('GEMINI_MODEL', 'gemini-3.5-flash')}"
     if os.getenv("OPENROUTER_API_KEY"):
         return f"openrouter:{os.getenv('OPENROUTER_MODEL', 'openai/gpt-4o-mini')}"
     return "deterministic-rule-engine-v1"
@@ -35,12 +37,15 @@ class Settings:
     approach: str = field(
         default_factory=lambda: os.getenv(
             "APPROACH",
-            "stateful FastAPI bot with versioned context store, trigger routing, grounded deterministic composition, optional OpenRouter refinement, and multi-turn reply policies",
+            "stateful FastAPI bot with versioned context store, trigger routing, grounded deterministic composition, optional Gemini/OpenRouter refinement, and multi-turn reply policies",
         )
     )
     contact_email: str = field(default_factory=lambda: os.getenv("CONTACT_EMAIL", "team@example.com"))
     version: str = field(default_factory=lambda: os.getenv("APP_VERSION", "0.1.0"))
     submitted_at: str = field(default_factory=lambda: os.getenv("SUBMITTED_AT", utc_now_iso()))
+    llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini"))
+    gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.5-flash"))
     openrouter_api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
     openrouter_model: str = field(default_factory=lambda: os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"))
     openrouter_referer: str = field(default_factory=lambda: os.getenv("OPENROUTER_REFERER", "https://magicpin.local"))

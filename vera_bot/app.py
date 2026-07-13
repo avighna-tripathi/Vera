@@ -20,7 +20,7 @@ from vera_bot.models import (
 )
 from vera_bot.services.composer import Composer
 from vera_bot.services.context_resolver import ContextResolver
-from vera_bot.services.llm import OpenRouterRefiner
+from vera_bot.services.llm import build_refiner
 from vera_bot.services.reply_policy_v2 import ReplyPolicy
 from vera_bot.services.trigger_selector import TriggerSelector, score_trigger
 from vera_bot.services.validators import avoid_repetition, validate_action_shape
@@ -36,11 +36,14 @@ suppression_store = SuppressionStore()
 resolver = ContextResolver(context_store)
 selector = TriggerSelector(suppression_store)
 composer = Composer(
-    refiner=OpenRouterRefiner(
-        api_key=SETTINGS.openrouter_api_key,
-        model=SETTINGS.openrouter_model,
-        referer=SETTINGS.openrouter_referer,
-        title=SETTINGS.openrouter_title,
+    refiner=build_refiner(
+        SETTINGS.llm_provider,
+        gemini_api_key=SETTINGS.gemini_api_key,
+        gemini_model=SETTINGS.gemini_model,
+        openrouter_api_key=SETTINGS.openrouter_api_key,
+        openrouter_model=SETTINGS.openrouter_model,
+        openrouter_referer=SETTINGS.openrouter_referer,
+        openrouter_title=SETTINGS.openrouter_title,
     )
 )
 reply_policy = ReplyPolicy(suppression_store)

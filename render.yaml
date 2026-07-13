@@ -9,12 +9,12 @@ services:
     startCommand: uvicorn bot:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /v1/healthz
     envVars:
-      - key: OPENROUTER_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: OPENROUTER_MODEL
-        value: openai/gpt-4o-mini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
       - key: LLM_PROVIDER
-        value: openrouter
+        value: gemini
       - key: TEAM_NAME
         value: magicpin-challenge
       - key: TEAM_MEMBERS

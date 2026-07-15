@@ -442,13 +442,12 @@ class Composer:
             return body, "binary_yes_no", "Performance spike uses verified numbers and positive timing to create urgency, frames inaction cost."
 
         if kind == "dormant_with_vera":
-            why_now = _why_now_hook(merchant)
             body = (
-                f"{owner}, restarting with a generic idea would waste the moment at {business} in {place}. "
-                f"{why_now.capitalize()}, and with a {ctr} CTR, the clean restart for your {label} is to {action}. "
-                f"Want the ready-to-send draft? It takes 2 minutes to deploy."
+                f"{owner}, {business} in {place} currently holds {views} local profile views and {calls} direct calls this month with a {ctr} engagement rate. "
+                f"Rather than restarting with a generic update that gets ignored, the highest-ROI restart for your {label} today is to {_category_action(merchant)}. "
+                f"Want me to draft the Google post and WhatsApp broadcast right now? It takes under 2 minutes to deploy."
             )
-            return body, "binary_yes_no", "Dormant re-entry uses verified profile numbers as timing hook, avoids stale follow-up, and picks one sharp restart action."
+            return body, "binary_yes_no", "Dormant re-entry cites verified live profile metrics as the conversion baseline, contrasts generic updates against a high-ROI category action, and offers a 2-minute deployment draft."
 
         if kind == "review_theme_emerged":
             slug = merchant.get("category_slug", "")
@@ -743,19 +742,19 @@ class Composer:
         if value_now is not None and milestone_value is not None and metric:
             body = (
                 f"{owner}, {business} is at {_fmt_number(value_now)} {metric.replace('_', ' ')} and closing in on {_fmt_number(milestone_value)}. "
-                f"Profile in {place}: {views} views and {calls} calls this month ({why_now}). "
+                f"Profile in {place}: {views} views and {calls} calls this month. "
                 f"{decision_advice}. "
                 f"Want me to send our ready-to-use Google post and WhatsApp reply draft to convert this milestone into immediate bookings?"
             )
         else:
             benchmark_crossed, exact_val, next_target = _milestone_from_data(merchant)
             body = (
-                f"{owner}, {business} in {place} just achieved a major milestone: {benchmark_crossed} (currently at {exact_val}, on track for {next_target}). "
-                f"With your profile delivering {views} views and {calls} calls this month ({why_now}), this social proof is your strongest conversion lever. "
+                f"{owner}, {business} in {place} just hit a major local milestone: {benchmark_crossed} (currently holding steady at {views} profile views and {calls} direct calls this month). "
+                f"With your profile drawing steady local traffic right now, this social proof is your strongest conversion lever. "
                 f"{decision_advice}. "
                 f"Want me to send our ready-to-use Google post and WhatsApp reply draft to convert this milestone into immediate bookings?"
             )
-        rationale = "Milestone message turns quantitative social proof into a category-specific growth decision anchored to positive profile trends."
+        rationale = "Milestone message turns quantitative social proof into a category-specific growth decision anchored to positive profile trends without metric repetition."
         return body, "binary_yes_no", rationale
 
     def _compose_active_planning_intent(self, resolved: ResolvedContexts) -> tuple[str, str, str]:
@@ -827,9 +826,9 @@ class Composer:
         trend_text = f" and the trend is {trend}" if trend else ""
         quote_text = f' One customer wrote: "{common_quote}".' if common_quote else ""
         body = (
-            f"{owner}, {count} recent reviews at {business} in {place} point to a pattern around {theme}{trend_text}.{quote_text} "
-            f"With {views} views and {calls} calls this month, every unaddressed review costs you future bookings. "
-            f"2-step fix for your {label}: first, {fix_approach}; then I'll draft a calm public reply template you can reuse. "
+            f"{owner}, {count} recent reviews at {business} in {place} point to a clear pattern around {theme}{trend_text}.{quote_text} "
+            f"With your profile drawing {views} views and {calls} calls this month, every unaddressed review directly impacts your conversion rate. "
+            f"Here is our 2-step fix for your {label}: first, {fix_approach}; then I will draft a calm, professional public reply template you can reuse. "
             f"{_category_cta(merchant, 'review')}"
         )
         rationale = "Review-pattern outreach uses specific review count, trend direction, and customer quote to justify timing, then pairs operational fix with ready-to-use reply asset."
@@ -854,14 +853,13 @@ class Composer:
         views = _fmt_number(perf.get("views", 0))
         calls = _fmt_number(perf.get("calls", 0))
         ctr = _fmt_pct(perf.get("ctr", 0))
-        why_now = _why_now_hook(merchant)
         body = (
             f"{owner}, your {plan} subscription for {business} in {place} is up for renewal {days_str}{amount_str}. "
-            f"Quick ROI check: {views} views, {calls} calls, {ctr} CTR this month — {why_now}. "
-            f"Keeping your {label} visible while refining your booking funnel is your highest-return decision. "
-            f"Want the 3-point renewal ROI summary with your top conversion fix?"
+            f"Quick ROI check: your profile generated {views} views, {calls} direct calls, and a {ctr} engagement rate this month. "
+            f"Keeping your {label} active while executing one sharp operational fix is your highest-return decision right now. "
+            f"Want our 3-point renewal ROI summary and custom rebooking script?"
         )
-        rationale = "Renewal nudge uses specific profile numbers and 7d trend as why-now context, frames visibility as highest-ROI decision."
+        rationale = "Renewal nudge uses specific profile metrics without repetition and frames visibility as highest-ROI decision."
         return body, "binary_yes_no", rationale
 
     def _compose_curious_ask_due(self, resolved: ResolvedContexts) -> tuple[str, str, str]:

@@ -74,10 +74,11 @@ class ReplyPolicy:
 
         if self._looks_like_auto_reply(lowered):
             record.auto_reply_count += 1
-            if record.auto_reply_count >= 3:
+            count = self.suppression_store.increment_auto_reply_count(record.merchant_id) if hasattr(self.suppression_store, "increment_auto_reply_count") else record.auto_reply_count
+            if record.auto_reply_count >= 3 or count >= 3:
                 record.ended = True
                 return {"action": "end", "rationale": "Auto-reply repeated three times with no real engagement; closing the conversation."}
-            if record.auto_reply_count == 2:
+            if record.auto_reply_count == 2 or count == 2:
                 return {"action": "wait", "wait_seconds": 86400, "rationale": "Same auto-reply repeated twice; waiting 24 hours for the owner."}
             return {"action": "wait", "wait_seconds": 14400, "rationale": "Detected a likely WhatsApp Business auto-reply; backing off for 4 hours."}
 

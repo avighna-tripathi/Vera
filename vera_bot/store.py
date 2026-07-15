@@ -118,6 +118,7 @@ class SuppressionStore:
         self._suppressed: dict[str, datetime] = {}
         self._merchant_cooldowns: dict[str, datetime] = {}
         self._opted_out_merchants: dict[str, datetime] = {}
+        self._merchant_auto_reply_counts: dict[str, int] = {}
 
     def suppress(self, key: str, until: datetime) -> None:
         self._suppressed[key] = until
@@ -145,3 +146,11 @@ class SuppressionStore:
         now = now or utc_now()
         expires_at = self._opted_out_merchants.get(merchant_id)
         return bool(expires_at and expires_at > now)
+
+    def increment_auto_reply_count(self, merchant_id: str) -> int:
+        count = self._merchant_auto_reply_counts.get(merchant_id, 0) + 1
+        self._merchant_auto_reply_counts[merchant_id] = count
+        return count
+
+    def get_auto_reply_count(self, merchant_id: str) -> int:
+        return self._merchant_auto_reply_counts.get(merchant_id, 0)

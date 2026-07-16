@@ -24,25 +24,18 @@ Author: magicpin AI Challenge Team
 BOT_URL = "http://localhost:8080"
 
 # Choose your LLM provider: "openai", "anthropic", "gemini", "deepseek", "groq", "ollama", "openrouter"
-LLM_PROVIDER = "openai"
+LLM_PROVIDER = "gemini"
 
-# Your API key (paste your key here)
-LLM_API_KEY = ""  # <-- PUT YOUR API KEY HERE
+# Your API key (or set via LLM_API_KEY environment variable)
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")  # <-- PUT YOUR API KEY HERE OR IN ENV VAR
 
 # Model to use (leave empty for default, or specify like "gpt-4o", "claude-3-5-sonnet-20241022", etc.)
-LLM_MODEL = ""  # <-- Optional: specify model or leave empty for default
-
+LLM_MODEL = "gemini-3.1-flash-lite"  # <-- Optional: specify model or leave empty for default
 # For Ollama only: local server URL
 OLLAMA_URL = "http://localhost:11434"
 
 # Which test to run by default
-TEST_SCENARIO = "all"
-
-# Simulated test-window time used for /v1/tick and /v1/reply in local judging
-SIMULATED_NOW = "2026-04-26T10:35:00Z"
-
-# Keep Gemini free-tier judging below the per-minute request limit.
-JUDGE_SCORE_DELAY_SECONDS = 4.2
+TEST_SCENARIO = "full_evaluation"
 
 # =============================================================================
 # ██████  END OF CONFIGURATION - DON'T EDIT BELOW THIS LINE ██████
@@ -60,38 +53,10 @@ from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 from urllib import request as urlrequest, error as urlerror
 from abc import ABC, abstractmethod
-from dotenv import load_dotenv
 
 # Constants
 TIMEOUT_LLM = 45
 DATASET_DIR = Path(__file__).parent / "dataset"
-load_dotenv(Path(__file__).parent / ".env")
-
-# Environment overrides so the script can run without manual file edits.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", LLM_PROVIDER)
-BOT_URL = os.getenv("BOT_URL", BOT_URL)
-TEST_SCENARIO = os.getenv("TEST_SCENARIO", TEST_SCENARIO)
-JUDGE_SCORE_DELAY_SECONDS = float(os.getenv("JUDGE_SCORE_DELAY_SECONDS", JUDGE_SCORE_DELAY_SECONDS))
-SIMULATED_NOW = os.getenv("SIMULATED_NOW", SIMULATED_NOW)
-if not LLM_API_KEY:
-    if LLM_PROVIDER == "gemini":
-        LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    elif LLM_PROVIDER == "openrouter":
-        LLM_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-    else:
-        LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-if not LLM_MODEL and LLM_PROVIDER == "gemini":
-    LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-if not LLM_MODEL and LLM_PROVIDER == "openrouter":
-    LLM_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-if LLM_PROVIDER == "openai" and not LLM_API_KEY and os.getenv("GEMINI_API_KEY"):
-    LLM_PROVIDER = "gemini"
-    LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-if LLM_PROVIDER == "openai" and not LLM_API_KEY and os.getenv("OPENROUTER_API_KEY"):
-    LLM_PROVIDER = "openrouter"
-    LLM_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-    LLM_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
 # =============================================================================
 # TERMINAL OUTPUT
@@ -392,42 +357,25 @@ class DatasetLoader:
 
     def load(self) -> bool:
         try:
-            expanded_dir = self.dataset_dir / "expanded"
-            use_expanded = expanded_dir.exists()
-            base_dir = expanded_dir if use_expanded else self.dataset_dir
-
-            cat_dir = base_dir / "categories"
+            cat_dir = self.dataset_dir / "categories"
             if cat_dir.exists():
                 for f in cat_dir.glob("*.json"):
-                    data = json.load(open(f, encoding="utf-8"))
+                    data = json.load(open(f))
                     self.categories[data.get("slug", f.stem)] = data
 
-            if use_expanded:
-                for folder_name, container, key in [
-                    ("merchants", "merchants", "merchant_id"),
-                    ("customers", "customers", "customer_id"),
-                    ("triggers", "triggers", "id"),
-                ]:
-                    folder = base_dir / folder_name
+            for name, container, key in [
+                ("merchants_seed.json", "merchants", "merchant_id"),
+                ("customers_seed.json", "customers", "customer_id"),
+                ("triggers_seed.json", "triggers", "id")
+            ]:
+                path = self.dataset_dir / name
+                if path.exists():
+                    data = json.load(open(path))
+                    items = data.get(container, data.get(container.rstrip("s"), []))
                     storage = getattr(self, container)
-                    for f in folder.glob("*.json"):
-                        item = json.load(open(f, encoding="utf-8"))
+                    for item in items:
                         if key in item:
                             storage[item[key]] = item
-            else:
-                for name, container, key in [
-                    ("merchants_seed.json", "merchants", "merchant_id"),
-                    ("customers_seed.json", "customers", "customer_id"),
-                    ("triggers_seed.json", "triggers", "id")
-                ]:
-                    path = self.dataset_dir / name
-                    if path.exists():
-                        data = json.load(open(path, encoding="utf-8"))
-                        items = data.get(container, data.get(container.rstrip("s"), []))
-                        storage = getattr(self, container)
-                        for item in items:
-                            if key in item:
-                                storage[item[key]] = item
             return True
         except Exception as e:
             print_fail(f"Dataset load error: {e}")
@@ -474,14 +422,14 @@ class BotClient:
 
     def tick(self, triggers):
         return self._request("POST", "/v1/tick", 15, {
-            "now": SIMULATED_NOW, "available_triggers": triggers
+            "now": datetime.utcnow().isoformat() + "Z", "available_triggers": triggers
         })
 
     def reply(self, conv_id, merchant_id, message, turn):
         return self._request("POST", "/v1/reply", 15, {
             "conversation_id": conv_id, "merchant_id": merchant_id, "customer_id": None,
             "from_role": "merchant", "message": message,
-            "received_at": SIMULATED_NOW, "turn_number": turn
+            "received_at": datetime.utcnow().isoformat() + "Z", "turn_number": turn
         })
 
 # =============================================================================
@@ -836,7 +784,8 @@ class JudgeSimulator:
     def _all(self) -> bool:
         results = []
         for name, fn in [("warmup", self._warmup), ("auto_reply", self._auto_reply),
-                         ("intent", self._intent), ("hostile", self._hostile)]:
+                         ("intent", self._intent), ("hostile", self._hostile),
+                         ("full_evaluation", self._full)]:
             try:
                 results.append((name, fn()))
             except Exception as e:
@@ -892,8 +841,6 @@ class JudgeSimulator:
         customer = self.dataset.customers.get(cid) if cid else None
         category = self.dataset.categories.get(merchant.get("category_slug", ""), {})
 
-        if self.all_scores and JUDGE_SCORE_DELAY_SECONDS > 0:
-            time.sleep(JUDGE_SCORE_DELAY_SECONDS)
         score = self.scorer.score(action, category, merchant, trigger, customer)
         self.all_scores.append(score)
 

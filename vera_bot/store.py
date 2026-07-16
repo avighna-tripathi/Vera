@@ -54,7 +54,7 @@ class ContextStore:
     def upsert(self, scope: str, context_id: str, version: int, payload: dict[str, Any], delivered_at: str | None) -> tuple[bool, StoredContext]:
         key = (scope, context_id)
         current = self._contexts.get(key)
-        if current and current.version >= version:
+        if current and current.version > version:
             return False, current
         stored = StoredContext(version=version, payload=payload, delivered_at=delivered_at)
         self._contexts[key] = stored

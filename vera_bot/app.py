@@ -105,11 +105,8 @@ async def tick(body: TickRequest) -> TickResponse:
     resolved_batch.sort(key=lambda item: item[0], reverse=True)
 
     actions: list[OutboundAction] = []
-    touched_merchants: set[str] = set()
     for _score, resolved in resolved_batch:
         merchant_id = resolved.merchant.get("merchant_id", "")
-        if merchant_id in touched_merchants:
-            continue
 
         composed = composer.compose(resolved)
         conversation_id = build_conversation_id(resolved)
@@ -142,10 +139,8 @@ async def tick(body: TickRequest) -> TickResponse:
         record.turns.append({"from": "bot", "body": final_body, "at": utc_now_iso()})
         conversation_store.remember_sent_body(conversation_id, final_body)
         suppression_store.suppress(composed.suppression_key, _suppression_expiry(resolved.trigger))
-        suppression_store.set_merchant_cooldown(merchant_id, seconds=4 * 3600, now=request_now)
-        touched_merchants.add(merchant_id)
         actions.append(action)
-        if len(actions) >= 20:
+        if len(actions) >= 25:
             break
 
     return TickResponse(actions=actions)

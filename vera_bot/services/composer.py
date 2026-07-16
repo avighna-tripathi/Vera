@@ -6,7 +6,7 @@ from typing import Any
 from vera_bot.services.context_resolver import ResolvedContexts
 from vera_bot.services.llm import OpenRouterRefiner
 from vera_bot.services.templates import template_name_for, template_params_for
-from vera_bot.services.validators import sanitize_text
+from vera_bot.services.validators import sanitize_text, truncate_to_limit
 
 
 def _money(value: Any) -> str:
@@ -169,19 +169,12 @@ def _category_proof_play(merchant: dict[str, Any], offer_text: str | None = None
 
 
 def _why_now_hook(merchant: dict[str, Any], context_type: str = "neutral") -> str:
-    """Generate a concrete 'why now' timing hook tailored to verified profile metrics visible in context."""
-    perf = merchant.get("performance", {})
-    views = _fmt_number(perf.get("views", 0))
-    calls = _fmt_number(perf.get("calls", 0))
-
+    """Generate a concise 'why now' timing hook without repeating metrics."""
     if context_type == "positive":
-        return f"with your profile actively drawing {views} local views and {calls} direct calls this month, you have peak local attention right now"
-
+        return "you have peak local attention right now"
     if context_type == "negative":
-        return f"with {views} profile views and {calls} direct calls right now, taking immediate action protects your regular customer base before they look elsewhere"
-
-    # neutral
-    return f"with {views} profile views and {calls} calls right now, this is the key operational window to convert existing interest into immediate bookings"
+        return "immediate action protects your regular base"
+    return "this is the key window to convert profile visits into confirmed bookings"
 
 
 def _milestone_from_data(merchant: dict[str, Any]) -> tuple[str, str, str]:
@@ -321,7 +314,7 @@ class Composer:
             except Exception:
                 # Keep deterministic fallback if the network/model path fails.
                 pass
-        body = sanitize_text(body)
+        body = truncate_to_limit(sanitize_text(body), max_chars=310)
         template_name = template_name_for(trigger.get("kind", "generic"), send_as)
         customer_name = resolved.customer.get("identity", {}).get("name") if resolved.customer else None
         template_params = template_params_for(body, _business_name(resolved.merchant), customer_name=customer_name)
@@ -406,26 +399,26 @@ class Composer:
             slug = merchant.get("category_slug", "")
             why_now = _why_now_hook(merchant)
             insights = {
-                "dentists": "our latest patient data shows clinics that send a 3-question preventive oral health quiz via WhatsApp see a 24% increase in recall checkup bookings",
-                "gyms": "our latest fitness benchmark data shows gyms that share short 60-second trainer form-check clips capture 22% more personal training inquiries",
-                "pharmacies": "our latest pharmacy data shows local stores that offer automated monthly refill reminders retain 31% more chronic care patients",
-                "restaurants": "our latest diner data shows restaurants that post peak dinner combo deals by 4:30 PM capture 19% higher evening order volume",
-                "salons": "our latest beauty data shows studios that follow up 4 weeks post-treatment with a maintenance reminder capture 28% more weekday rebookings",
+                "dentists": "clinics sending a short preventive oral quiz via WhatsApp see 24% more recall checkup bookings",
+                "gyms": "gyms sharing 60-second trainer form-check clips capture 22% more personal training inquiries",
+                "pharmacies": "pharmacies offering automated monthly refill reminders retain 31% more chronic care patients",
+                "restaurants": "restaurants posting peak dinner combo deals by 4:30 PM capture 19% higher evening order volume",
+                "salons": "studios following up 4 weeks post-treatment with a maintenance note capture 28% more rebookings",
             }
-            insight = insights.get(slug, f"our latest category benchmark data shows proactive {label} engagement drives 20% higher conversion")
+            insight = insights.get(slug, f"proactive {label} engagement drives 20% higher conversion")
 
             body = (
                 f"{owner}, {insight} at {business} in {place}. "
-                f"{why_now.capitalize()}, making this exact educational strategy your highest-ROI lever right now. "
-                f"Want me to send our ready-to-use Google post and WhatsApp broadcast template built around this insight for your {label}?"
+                f"{why_now.capitalize()}. "
+                f"Want our ready-to-use template for your {label}?"
             )
             return body, "binary_yes_no", "Research digest delivers a concrete, high-converting industry insight tailored to the category, anchors timing to verified live profile traffic, and offers an immediate ready-to-use draft."
 
         if kind == "perf_dip":
-            offer_line = f"push '{offer_text}' with one sharp line instead." if offer_text else f"the sharpest move for your {label} is to {_category_action(merchant)}."
+            offer_line = f"push '{offer_text}' instead." if offer_text else f"push {_category_action(merchant)}."
             why_now = _why_now_hook(merchant, context_type="negative")
             body = (
-                f"{owner}, {business} in {place} holds a {ctr} engagement rate — and {why_now}. "
+                f"{owner}, {business} in {place} holds a {ctr} CTR — and {why_now}. "
                 f"Rather than cutting price when traffic softens, {offer_line} "
                 f"Want our ready-to-send recovery post and reply script?"
             )
@@ -436,42 +429,33 @@ class Composer:
             why_now = _why_now_hook(merchant, context_type="positive")
             body = (
                 f"{owner}, {business} in {place} holds a strong {ctr} CTR — and {why_now}. "
-                f"Every day you don't capture this demand, competitors will."
+                f"Capture this demand right now before competitors do."
                 f"{offer_line} Want a same-day post and reply script?"
             )
             return body, "binary_yes_no", "Performance spike uses verified numbers and positive timing to create urgency, frames inaction cost."
 
         if kind == "dormant_with_vera":
             body = (
-                f"{owner}, {business} in {place} currently holds {views} local profile views and {calls} direct calls this month with a {ctr} engagement rate. "
-                f"Rather than restarting with a generic update that gets ignored, the highest-ROI restart for your {label} today is to {_category_action(merchant)}. "
-                f"Want me to draft the Google post and WhatsApp broadcast right now? It takes under 2 minutes to deploy."
+                f"{owner}, {business} in {place} holds {views} views and {calls} calls right now. "
+                f"Best restart for your {label} today: {_category_action(merchant)}. "
+                f"Want our 2-minute ready-to-send draft?"
             )
             return body, "binary_yes_no", "Dormant re-entry cites verified live profile metrics as the conversion baseline, contrasts generic updates against a high-ROI category action, and offers a 2-minute deployment draft."
 
         if kind == "review_theme_emerged":
             slug = merchant.get("category_slug", "")
             patterns = {
-                "salons": "a consistent review theme regarding Saturday wait times and stylist scheduling has emerged across your recent Google reviews",
-                "dentists": "a specific review theme regarding appointment spacing and check-in wait times has emerged across your recent patient reviews",
-                "gyms": "a clear review pattern regarding peak-hour equipment crowding and turf ventilation has emerged across your member reviews",
-                "pharmacies": "a noticeable review theme regarding home delivery dispatch delays and prescription refill billing has emerged across recent customer reviews",
-                "restaurants": "a distinct review pattern regarding peak dinner packaging wait times and food temperature has emerged across your recent diner reviews",
+                "salons": "a review pattern around Saturday wait times and stylist scheduling has emerged",
+                "dentists": "a review pattern around appointment spacing and check-in wait times has emerged",
+                "gyms": "a review pattern around peak equipment crowding and turf ventilation has emerged",
+                "pharmacies": "a review pattern around home delivery dispatch delays has emerged",
+                "restaurants": "a review pattern around dinner packaging wait times and food temperature has emerged",
             }
             pattern = patterns.get(slug, "a specific review pattern has emerged across your feedback")
-            audience_map = {
-                "salons": "salon clients",
-                "dentists": "patients",
-                "gyms": "members",
-                "pharmacies": "customers",
-                "restaurants": "diners",
-            }
-            aud = audience_map.get(slug, "customers")
             why_now = _why_now_hook(merchant, context_type="negative")
             body = (
-                f"{owner}, {pattern} at {business} in {place}. "
-                f"{why_now.capitalize()}, and every unanswered negative review directly impacts your next wave of {aud}. "
-                f"Here is our 2-step fix for your {label}: first, {_category_review_fix(merchant)}; second, deploy a professional, calm public reply. "
+                f"{owner}, {pattern} at {business} in {place} ({views} views, {calls} calls). "
+                f"2-step fix for your {label}: {_category_review_fix(merchant)}, plus a calm public reply. "
                 f"{_category_cta(merchant, 'review')}"
             )
             return body, "binary_yes_no", "Review-theme alert identifies a specific operational pattern from recent feedback, quantifies the conversion impact using live profile metrics, and provides a concrete 2-step fix."
@@ -480,9 +464,9 @@ class Composer:
             why_now = _why_now_hook(merchant)
             proof_play = _category_proof_play(merchant, offer_text)
             body = (
-                f"{owner}, if a competitor has opened near {place}, don't race to cut prices. "
-                f"At {business}, {why_now} — lead with trust instead: {proof_play}. "
-                f"Reply POSITION and I'll draft the two-line message before regulars start comparing."
+                f"{owner}, if a competitor opened near {place}, don't cut prices. "
+                f"At {business}, {why_now} — lead with trust: {proof_play}. "
+                f"Reply POSITION for our two-line draft."
             )
             return body, "binary_yes_no", "Competitor placeholder uses verified profile data as the reason to act now, recommends positioning over price."
 
@@ -490,9 +474,8 @@ class Composer:
             offer_line = f"'{offer_text}'" if offer_text else f"one {label}-specific offer"
             why_now = _why_now_hook(merchant)
             body = (
-                f"{owner}, festival season is approaching for {business} in {place} — {why_now}. "
-                f"With {views} views, {calls} calls, and {ctr} CTR this month, the smart decision is to prep {offer_line} now with a fixed advance-booking window, not launch a broad discount. "
-                f"Merchants who lock in bookings 2 weeks early capture 30-40% more festive demand. "
+                f"{owner}, festival season is approaching for {business} in {place} ({views} views, {calls} calls). "
+                f"Prep {offer_line} now with a fixed advance-booking window. "
                 f"{_category_cta(merchant, 'festival')}"
             )
             return body, "binary_yes_no", "Festival placeholder uses specific profile metrics and 7d trend timing to frame why now, adds social proof stat on early booking advantage."
@@ -504,35 +487,34 @@ class Composer:
             why_now = _why_now_hook(merchant)
             if isinstance(days_left, int) and days_left > 60:
                 body = (
-                    f"{owner}, your {plan_name} plan at {business} in {place} has {days_left} days left — no rush. "
-                    f"Your profile pulled {views} views and {calls} calls this month, and {why_now}. "
-                    f"Use the next 30 days to {action}, then judge renewal on the extra bookings it creates. "
-                    f"Want a 30-day conversion plan tailored to your {label}?"
+                    f"{owner}, your {plan_name} plan at {business} in {place} has {days_left} days left. "
+                    f"Profile: {views} views, {calls} calls. Use the next 30 days to {action}. "
+                    f"Want a conversion plan tailored to your {label}?"
                 )
                 return body, "binary_yes_no", "Long-horizon renewal removes false urgency, references specific profile numbers and 7d trends, and offers a measurable conversion plan."
             body = (
                 f"{owner}, your {plan_name} plan at {business} in {place} renews {days_str}. "
-                f"Quick ROI check: {views} views, {calls} calls, {ctr} CTR this month — {why_now}. "
-                f"Keeping your {label} visible while refining your booking funnel is your highest-return decision right now. "
-                f"Want the 3-point renewal ROI summary with your top conversion fix?"
+                f"Quick check: {views} views, {calls} calls ({ctr} CTR). "
+                f"Keeping your {label} visible is your highest-return decision. "
+                f"Want our renewal ROI summary and conversion fix?"
             )
             return body, "binary_yes_no", "Renewal nudge uses specific profile numbers and 7d trend as why-now, offers concrete ROI decision support."
 
         if kind == "curious_ask_due":
             why_now = _why_now_hook(merchant)
             body = (
-                f"{owner}, quick question for {business} in {place}: what's the one service or item customers ask about most this week? "
-                f"With {views} views and {calls} calls this month — {why_now} — I can turn your answer into a Google post and WhatsApp reply within 5 minutes. "
-                f"Just send me the item name."
+                f"{owner}, quick question for {business} in {place}: what's the top item customers ask about this week? "
+                f"With {views} views and {calls} calls, I can turn your answer into a post and reply script. "
+                f"Send me the item name?"
             )
             return body, "open_ended", "Curiosity-led placeholder uses specific numbers and 7d trend timing, promises fast turnaround to drive reply."
 
         # Generic placeholder fallback — category + performance aware
         why_now = _why_now_hook(merchant)
         body = (
-            f"{owner}, {business} in {place}: {views} views, {calls} calls, {ctr} CTR this month — {why_now}. "
-            f"For your {label}, the sharpest next step is to {action}. "
-            f"Want the ready-to-send draft? Takes 2 minutes to deploy."
+            f"{owner}, {business} in {place}: {views} views, {calls} calls ({ctr} CTR) — {why_now}. "
+            f"Sharpest move for your {label}: {action}. "
+            f"Want our ready-to-send draft?"
         )
         return body, "binary_yes_no", "Generic placeholder uses specific profile numbers and 7d trend timing with a low-friction CTA."
 
@@ -571,9 +553,8 @@ class Composer:
             cta = "Want the celebration post and customer reply draft?"
 
         body = (
-            f"{owner}, {business} in {place} just hit a major local milestone: {benchmark_crossed} (currently holding steady at {views} profile views and {calls} direct calls this month). "
-            f"With your profile drawing steady local traffic right now, this local trust is your strongest conversion asset. "
-            f"For your {label}, the highest-impact move today is to {action}. "
+            f"{owner}, {business} in {place} just crossed {benchmark_crossed} ({views} views, {calls} calls this month). "
+            f"Best conversion move for your {label}: {action}. "
             f"{cta}"
         )
         return body, "binary_yes_no", "Milestone placeholder computes a real milestone threshold crossed from performance data without redundancy and recommends a category-specific conversion action."
@@ -588,15 +569,12 @@ class Composer:
             segment = digest.get("patient_segment", "patient cohort").replace("_", " ")
             title = digest.get("title", "")
             summary = digest.get("summary", title).rstrip(".")
+            insight_text = summary.split(". ")[0] if summary else title
             source = digest.get("source", "this week's digest")
-            body = (
-                f"{owner}, {source} has one useful item: {title}. "
-                f"{trial_n:,}-patient data on {segment} showed {summary.split('. ')[0]}. "
-                f"Want me to draft a patient-friendly WhatsApp or a short Google post from it?"
-                if isinstance(trial_n, int)
-                else f"{owner}, this week's dentistry digest has one useful item: {digest.get('title', '')}. "
-                f"Worth a quick look. Want me to turn it into a patient WhatsApp or a short Google post?"
-            )
+            if isinstance(trial_n, int):
+                body = f"{owner}, {source} insight: {insight_text} ({trial_n:,} {segment}s). Want me to draft a patient WhatsApp or Google post from it?"
+            else:
+                body = f"{owner}, {source} insight: {title}. Want me to turn it into a patient WhatsApp or short Google post?"
             rationale = "Research-led outreach using category digest evidence and a low-friction follow-up asset."
             return body, "open_ended", rationale
         return self._compose_generic(resolved)
@@ -635,14 +613,15 @@ class Composer:
         their_offer = payload.get("their_offer", "a low-entry offer")
         label = _category_label(merchant)
         place = _place_text(merchant)
-        snapshot = _performance_snapshot(merchant)
+        perf = merchant.get("performance", {})
+        views = _fmt_number(perf.get("views", 0))
+        calls = _fmt_number(perf.get("calls", 0))
         active_offer = _active_offers(merchant)
         offer_text = active_offer[0]["title"] if active_offer else None
-        offer_line = f" Your active offer '{offer_text}' is the hook — lead with it." if offer_text else ""
+        offer_line = f" Lead with '{offer_text}'." if offer_text else ""
         body = (
-            f"{owner}, heads-up: {competitor} opened about {distance} km from {place} with {their_offer}. "
-            f"You have credibility and local history on your side — do not race on price. "
-            f"{snapshot} at your {label}.{offer_line} "
+            f"{owner}, {competitor} opened ~{distance} km from {place} ({their_offer}). "
+            f"Don't race on price. Profile: {views} views, {calls} calls.{offer_line} "
             f"{_category_cta(merchant, 'competitor')}"
         )
         rationale = "Competitive alert that turns proximity threat into a messaging opportunity using merchant profile data."
@@ -672,9 +651,9 @@ class Composer:
             else _category_action(merchant)
         )
         body = (
-            f"{owner}, your {metric} dipped {delta_str} over the last {window}{baseline_str} at {business} in {place}. "
-            f"With your profile pulling {views} views, {calls} calls, and {ctr} CTR, the smartest recovery move for your {label} is not a blanket discount — "
-            f"it is to {recovery_line}. "
+            f"{owner}, {metric} dipped {delta_str} over the last {window}{baseline_str} at {business} in {place}. "
+            f"Profile: {views} views, {calls} calls. "
+            f"Smartest recovery for your {label}: {recovery_line}. "
             f"{_category_cta(merchant, 'perf')}"
         )
         rationale = "Performance dip message pairs exact metric deltas and business profile context with a concrete, non-discounting recovery asset."
@@ -738,21 +717,18 @@ class Composer:
             decision_advice = f"Celebrate this momentum by pushing '{offer_text}' to capture active local demand"
 
         why_now = _why_now_hook(merchant, context_type="positive")
-        # If we have real milestone values, use them
         if value_now is not None and milestone_value is not None and metric:
             body = (
-                f"{owner}, {business} is at {_fmt_number(value_now)} {metric.replace('_', ' ')} and closing in on {_fmt_number(milestone_value)}. "
-                f"Profile in {place}: {views} views and {calls} calls this month. "
-                f"{decision_advice}. "
-                f"Want me to send our ready-to-use Google post and WhatsApp reply draft to convert this milestone into immediate bookings?"
+                f"{owner}, {business} in {place} is at {_fmt_number(value_now)} {metric.replace('_', ' ')} (next target: {_fmt_number(milestone_value)}). "
+                f"Profile: {views} views, {calls} calls. {decision_advice}. "
+                f"Want our ready-to-send celebration draft?"
             )
         else:
             benchmark_crossed, exact_val, next_target = _milestone_from_data(merchant)
             body = (
-                f"{owner}, {business} in {place} just hit a major local milestone: {benchmark_crossed} (currently holding steady at {views} profile views and {calls} direct calls this month). "
-                f"With your profile drawing steady local traffic right now, this social proof is your strongest conversion lever. "
+                f"{owner}, {business} in {place} just crossed {benchmark_crossed} ({views} views, {calls} calls this month). "
                 f"{decision_advice}. "
-                f"Want me to send our ready-to-use Google post and WhatsApp reply draft to convert this milestone into immediate bookings?"
+                f"Want our ready-to-send celebration draft?"
             )
         rationale = "Milestone message turns quantitative social proof into a category-specific growth decision anchored to positive profile trends without metric repetition."
         return body, "binary_yes_no", rationale
@@ -773,16 +749,13 @@ class Composer:
         if not last_msg and merchant_msgs:
             last_msg = merchant_msgs[-1].get("body", "")
         active_offer = _active_offers(merchant)
-        offer_line = f" Build it around your active offer '{active_offer[0]['title']}'." if active_offer else ""
+        offer_line = f" Lead with '{active_offer[0]['title']}'." if active_offer else ""
         perf = merchant.get("performance", {})
         views = _fmt_number(perf.get("views", 0))
         calls = _fmt_number(perf.get("calls", 0))
         body = (
-            f"{owner}, since you asked about {topic}, here is the structure for {business} in {place}: "
-            f"one specific offer with a clear audience, a tight booking window, and a single reply CTA — "
-            f"not a broad announcement.{offer_line} "
-            f"Your profile is already pulling {views} views and {calls} calls this month. "
-            f"I can turn that into a ready-to-send 3-line draft now. Want it?"
+            f"{owner}, regarding {topic} for {business} in {place}: use one specific offer with a tight booking window and single CTA.{offer_line} "
+            f"Profile: {views} views, {calls} calls. Want our ready-to-send 3-line draft?"
         )
         rationale = "Merchant showed active planning intent, so the message gives a concrete campaign decision using their real performance data and moves directly to execution."
         return body, "binary_yes_no", rationale
@@ -800,9 +773,9 @@ class Composer:
         views = _fmt_number(perf.get("views", 0))
         calls = _fmt_number(perf.get("calls", 0))
         body = (
-            f"{owner}, your {metric} are down {delta_pct}% this week at {business} in {place}, but this looks seasonal rather than broken. "
-            f"Your profile still pulled {views} views and {calls} calls this month — the smart move is to protect your regulars, not panic-discount. "
-            f"For your {label}, let's re-engage your current base with a VIP loyalty check-in before the next peak window. "
+            f"{owner}, {metric} down {delta_pct}% at {business} in {place} (looks seasonal). "
+            f"Profile: {views} views, {calls} calls. Protect regulars instead of discounting. "
+            f"For your {label}, let's run a VIP loyalty check-in. "
             f"{_category_cta(merchant, 'perf')}"
         )
         rationale = "Seasonal framing uses specific trigger delta and profile numbers to reduce panic and shift toward a high-ROI retention step."
@@ -823,12 +796,10 @@ class Composer:
         views = _fmt_number(perf.get("views", 0))
         calls = _fmt_number(perf.get("calls", 0))
         fix_approach = _category_review_fix(merchant)
-        trend_text = f" and the trend is {trend}" if trend else ""
-        quote_text = f' One customer wrote: "{common_quote}".' if common_quote else ""
+        quote_short = f' Quote: "{common_quote[:35]}..."' if len(common_quote) > 35 else (f' Quote: "{common_quote}"' if common_quote else "")
         body = (
-            f"{owner}, {count} recent reviews at {business} in {place} point to a clear pattern around {theme}{trend_text}.{quote_text} "
-            f"With your profile drawing {views} views and {calls} calls this month, every unaddressed review directly impacts your conversion rate. "
-            f"Here is our 2-step fix for your {label}: first, {fix_approach}; then I will draft a calm, professional public reply template you can reuse. "
+            f"{owner}, {count} reviews at {business} in {place} flag {theme} ({trend}).{quote_short} "
+            f"Profile: {views} views, {calls} calls. Fix for your {label}: {fix_approach}. "
             f"{_category_cta(merchant, 'review')}"
         )
         rationale = "Review-pattern outreach uses specific review count, trend direction, and customer quote to justify timing, then pairs operational fix with ready-to-use reply asset."
@@ -854,10 +825,10 @@ class Composer:
         calls = _fmt_number(perf.get("calls", 0))
         ctr = _fmt_pct(perf.get("ctr", 0))
         body = (
-            f"{owner}, your {plan} subscription for {business} in {place} is up for renewal {days_str}{amount_str}. "
-            f"Quick ROI check: your profile generated {views} views, {calls} direct calls, and a {ctr} engagement rate this month. "
-            f"Keeping your {label} active while executing one sharp operational fix is your highest-return decision right now. "
-            f"Want our 3-point renewal ROI summary and custom rebooking script?"
+            f"{owner}, your {plan} plan for {business} in {place} renews {days_str}{amount_str}. "
+            f"Quick check: {views} views, {calls} calls ({ctr} CTR). "
+            f"Keeping your {label} active is your highest-return decision. "
+            f"Want our renewal ROI summary and custom script?"
         )
         rationale = "Renewal nudge uses specific profile metrics without repetition and frames visibility as highest-ROI decision."
         return body, "binary_yes_no", rationale
@@ -889,19 +860,21 @@ class Composer:
         offer_text = active_offer[0]["title"] if active_offer else "one specific festive offer"
         label = _category_label(merchant)
         place = _place_text(merchant)
-        snapshot = _performance_snapshot(merchant)
+        perf = merchant.get("performance", {})
+        views = _fmt_number(perf.get("views", 0))
+        calls = _fmt_number(perf.get("calls", 0))
 
         if days is not None and isinstance(days, int) and days > 60:
             body = (
                 f"{owner}, {festival} is {days_str} away for {business} in {place}. "
-                f"It is much too early to run discounts today, but with your profile generating {snapshot}, the smartest move right now is building your repeat-customer list so your audience is primed when festive demand hits. "
-                f"For your {label}, let's run a loyalty rebooking check-in to lock in your regulars ahead of time. "
-                f"Want the ready-to-send loyalty check-in draft?"
+                f"Too early for discounts, but with {views} views and {calls} calls this month, start locking in repeat clients now. "
+                f"For your {label}, let's run a loyalty rebooking check-in. "
+                f"Want the loyalty draft?"
             )
         else:
             body = (
-                f"{owner}, {festival} is {days_str} away for {business} in {place}. "
-                f"With your profile pulling {snapshot}, the right decision is to prep '{offer_text}' for your {label} with a clear advance-booking window before the rush hits. "
+                f"{owner}, {festival} is {days_str} away for {business} in {place} ({views} views, {calls} calls). "
+                f"Right decision for your {label}: prep '{offer_text}' with an advance-booking window now. "
                 f"{_category_cta(merchant, 'festival')}"
             )
         rationale = "Festival message makes a timing-aware operational decision anchored to current profile metrics and days remaining."
@@ -913,16 +886,17 @@ class Composer:
         owner = _dentist_prefix(merchant)
         business = _business_name(merchant)
         place = _place_text(merchant)
-        snapshot = _performance_snapshot(merchant)
+        perf = merchant.get("performance", {})
+        views = _fmt_number(perf.get("views", 0))
+        calls = _fmt_number(perf.get("calls", 0))
         active_offer = _active_offers(merchant)
         offer_text = active_offer[0]["title"] if active_offer else "a delivery-only combo"
         match = payload.get("match", "today's IPL match")
         venue = payload.get("venue", "the stadium")
         body = (
-            f"Quick match-day alert for {owner}: {match} is live today at {venue}. "
-            f"With {business} in {place} pulling {snapshot}, match-night delivery demand spikes 2 hours before the toss. "
-            f"For tonight's slot, prioritize high-margin delivery over dine-in and push '{offer_text}'. "
-            f"Want a ready-to-send 3-line WhatsApp banner draft to capture tonight's crowd?"
+            f"{owner}, match alert: {match} live today ({venue}). "
+            f"At {business} in {place} ({views} views, {calls} calls), delivery demand spikes before the toss. "
+            f"Prioritize delivery and push '{offer_text}'. Want our ready-to-send WhatsApp banner draft?"
         )
         rationale = "Trigger-aware restaurant recommendation pairs specific event timing with profile metrics to drive high-margin delivery conversion."
         return body, "binary_yes_no", rationale
@@ -1009,10 +983,9 @@ class Composer:
         why_now = _why_now_hook(merchant)
         topic_line = f"Rather than revisit {last_topic.replace('_', ' ')}, " if last_topic else ""
         body = (
-            f"{owner}, it has been {days} days since we last spoke. "
-            f"{topic_line}here is what is happening at {business} in {place}: {views} views and {calls} calls this month — {why_now}. "
-            f"The clean restart for your {label}: {action}. "
-            f"Want the ready-to-send draft? Takes 2 minutes to deploy."
+            f"{owner}, {days} days since we spoke. "
+            f"{topic_line}at {business} in {place}: {views} views, {calls} calls right now — {why_now}. "
+            f"Clean restart for your {label}: {action}. Want the ready-to-send draft?"
         )
         rationale = "Dormancy re-entry uses specific numbers and 7d trend to frame why now, avoids stale follow-up, and recommends one sharp restart action."
         return body, "binary_yes_no", rationale

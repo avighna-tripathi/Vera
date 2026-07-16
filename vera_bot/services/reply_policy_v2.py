@@ -15,6 +15,7 @@ OPT_OUT_PATTERNS = ["stop messaging", "not interested", "stop", "unsubscribe", "
 HOSTILE_PATTERNS = ["useless", "spam", "bothering me", "idiot", "stupid"]
 INTENT_PATTERNS = ["let's do it", "lets do it", "go ahead", "proceed", "what's next", "whats next", "confirm", "yes do it"]
 OUT_OF_SCOPE_PATTERNS = ["gst", "tax filing", "ca", "income tax"]
+BOOKING_PATTERNS = ["book me", "book for", "please book", "wed ", "thu ", "fri ", "sat ", "sun ", "mon ", "tue ", "6pm", "7pm", "8pm", "9pm", "10am", "11am", "morning", "evening", "afternoon"]
 YES_PATTERNS = ["yes", "send", "draft", "please share", "please send", "ok", "okay"]
 ARTIFACT_PATTERNS = [
     "final text",
@@ -83,8 +84,12 @@ class ReplyPolicy:
             return {"action": "wait", "wait_seconds": 14400, "rationale": "Detected a likely WhatsApp Business auto-reply; backing off for 4 hours."}
 
         if any(pattern in lowered for pattern in OUT_OF_SCOPE_PATTERNS):
-            body = "I'll leave GST and tax work to your CA. On this thread, I can help with the business message or draft we were discussing. Want the draft first or the short summary?"
-            return {"action": "send", "body": avoid_repetition(body, record.sent_bodies), "cta": "open_ended", "rationale": "Politely declining an out-of-scope request and redirecting to the active business task."}
+            body = "That is outside what I can help with here. On this thread I handle your business messaging and marketing. Want to continue with the draft?"
+            return {"action": "send", "body": avoid_repetition(body, record.sent_bodies), "cta": "binary_yes_no", "rationale": "Cleanly declining out-of-scope request without engaging, redirecting to active task."}
+
+        if any(pattern in lowered for pattern in BOOKING_PATTERNS):
+            body = f"Confirmed. I have noted your slot request for {_business_name(resolved.merchant)}. We will send a reminder the day before."
+            return {"action": "send", "body": avoid_repetition(body, record.sent_bodies), "cta": "binary_confirm_cancel", "rationale": "Customer selected a booking slot; confirming the appointment."}
 
         if self._is_revision_request(record, lowered):
             body = self._revise_existing_draft(record, resolved, lowered)
@@ -128,7 +133,7 @@ class ReplyPolicy:
             return "The digest point is strong because it ties to a real cohort and gives you a credible opener. If you want the finished asset now, reply with 'patient WhatsApp' or 'Google post'."
         if kind == "recall_due":
             return f"Perfect. I can hold the current slot options under {_business_name(merchant)} and turn this into the final reminder text now. Reply with 'final text' if you want the send-ready version."
-        return f"Understood. I can draft the next usable message for {_business_name(merchant)} now and keep it short enough to send as-is."
+        return f"Done. Here is the next ready-to-send draft for {_business_name(merchant)}. Reply 'final text' for the send-ready version."
 
     def _deliver_artifact(self, resolved: ResolvedContexts, lowered: str) -> str:
         options = self._parse_options(lowered)
@@ -231,7 +236,14 @@ class ReplyPolicy:
         return sanitize_text(f"Starter draft for {business}:\n\nWe can turn {topic} into a short campaign message with a clear offer, who it is for, and one simple CTA. If you want, send the audience or offer and I will tighten it further.")
 
     def _clarify_or_nudge(self, resolved: ResolvedContexts) -> str:
-        return sanitize_text(f"Understood. I can keep this simple for {_business_name(resolved.merchant)}. If you want, send me just one preference and I'll tailor the draft around it: offer, audience, or timing.")
+        merchant = resolved.merchant
+        kind = resolved.trigger.get("kind", "")
+        business = _business_name(merchant)
+        if kind == "regulation_change":
+            return sanitize_text(f"Got it. I will compile the compliance steps for {business} and draft a short checklist you can act on this week. Reply 'send' when ready.")
+        if kind == "research_digest":
+            return sanitize_text(f"Noted. I will turn this into a practical draft for {business}. Reply 'patient WhatsApp' or 'Google post' for the format you want.")
+        return sanitize_text(f"Noted. I can work this into the next draft for {business}. Send me one detail — offer, audience, or timing — and I will shape it.")
 
     def _parse_options(self, lowered: str) -> dict[str, bool]:
         return {
